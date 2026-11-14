@@ -1,6 +1,10 @@
 package id.banquet.bigbossrobot
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -19,11 +23,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,36 +42,87 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import kotlinx.coroutines.delay
+import java.util.Locale
 import kotlin.math.min
 
 private val RobotBlack = Color(0xFF000000)
 private val RobotWhite = Color(0xFFFFFFFF)
 
-private data class FaceMood(
-    val name: String,
-    val subtitle: String,
-    val eyeScale: Float,
-    val eyeTilt: Float,
-    val mouth: String
-)
+private enum class FaceMood(val eyeScale: Float, val mouth: String) {
+    IDLE(1.00f, "smile"),
+    GREETING(1.12f, "smile"),
+    SPEAKING(0.94f, "open"),
+    LAUGHING(0.78f, "laugh"),
+    FLIRTY(1.08f, "smirk"),
+    STERN(0.84f, "flat")
+}
 
-private val demoMoods = listOf(
-    FaceMood("IDLE", "Oh, ada orang.", 1.00f, 0f, "smile"),
-    FaceMood("CURIOUS", "Mau apa? Jangan cuma lihat-lihat.", 1.12f, -0.10f, "small"),
-    FaceMood("SPEAKING", "Selamat datang. Ada perlu apa?", 0.92f, 0f, "open"),
-    FaceMood("LAUGHING", "Hahaha. Lumayan juga lo.", 0.72f, 0.12f, "laugh"),
-    FaceMood("FLIRTY", "Tumben. Kangen gue, ya?", 1.08f, -0.16f, "smirk"),
-    FaceMood("STERN", "Dilarang berisik. Bos lagi kerja.", 0.82f, 0.18f, "flat")
-)
+class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
+    var faceMood by mutableStateOf(FaceMood.IDLE)
+        private set
+    var subtitle by mutableStateOf("...")
+        private set
+    var isSpeaking by mutableStateOf(false)
+        private set
+    var mouthPulse by mutableFloatStateOf(0f)
+        private set
 
-class MainActivity : ComponentActivity() {
+    private var speech: TextToSpeech? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = android.graphics.Color.BLACK
         window.navigationBarColor = android.graphics.Color.BLACK
-        setContent { RobotScreen() }
+        speech = TextToSpeech(this, this)
+        setContent { RobotScreen(this) }
+    }
+
+    override fun onInit(status: Int) {
+        if (status != TextToSpeech.SUCCESS) {
+            subtitle = "Suara belum tersedia."
+            return
+        }
+        val engine = speech ?: return
+        val indonesia = engine.setLanguage(Locale("id", "ID"))
+        if (indonesia == TextToSpeech.LANG_MISSING_DATA ||
+            indonesia == TextToSpeech.LANG_NOT_SUPPORTED) {
+            engine.setLanguage(Locale("id"))
+        }
+        engine.setSpeechRate(0.94f)
+        engine.setPitch(0.88f)
+        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {
+                mainHandler.post {
+                    isSpeaking = true
+                    faceMood = FaceMood.SPEAKING
+                }
+            }
+
+            override fun onDone(utteranceId: String?) {
+                mainHandler.post {
+                    isSpeaking = false
+                    faceMood = FaceMood.IDLE
+                }
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) {
+                mainHandler.post {
+                    isSpeaking = false
+                    faceMood = FaceMood.IDLE
+                }
+            }
+        })
+        speakLine("Oh, ada orang. Selamat datang. Mau cari siapa?")
+    }
+
+    private fun speakLine(line: String) {
+        subtitle = line
+        faceMood = FaceMood.GREETING
+        val id = "robot-${System.currentTimeMillis()}"
+        speech?.speak(line, TextToSpeech.QUEUE_FLUSH, null, id)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -82,12 +135,19 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onDestroy() {
+        speech?.stop()
+        speech?.shutdown()
+        speech = null
+        super.onDestroy()
+    }
 }
 
 @Composable
-private fun RobotScreen() {
+private fun RobotScreen(activity: MainActivity) {
     val view = LocalView.current
-    SideEffect {
+    androidx.compose.runtime.SideEffect {
         val controller = WindowInsetsControllerCompat(
             (view.context as ComponentActivity).window, view
         )
@@ -95,15 +155,6 @@ private fun RobotScreen() {
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
-
-    var moodIndex by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(4200)
-            moodIndex = (moodIndex + 1) % demoMoods.size
-        }
-    }
-    val mood = demoMoods[moodIndex]
 
     val transition = rememberInfiniteTransition(label = "robot-animation")
     val glance by transition.animateFloat(
@@ -143,17 +194,18 @@ private fun RobotScreen() {
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = keyframes {
-                durationMillis = 520
+                durationMillis = 460
                 0f at 0
-                1f at 180
-                0.15f at 360
-                0f at 520
+                1f at 150
+                0.12f at 330
+                0f at 460
             },
             repeatMode = RepeatMode.Restart
         ),
         label = "talk-pulse"
     )
 
+    val mood = activity.faceMood
     Box(
         modifier = Modifier.fillMaxSize().background(RobotBlack),
         contentAlignment = Alignment.Center
@@ -195,7 +247,7 @@ private fun RobotScreen() {
                 val mouth = Path()
                 when (mood.mouth) {
                     "open" -> {
-                        val openHeight = (12f + talkPulse * 17f) * unit
+                        val openHeight = (10f + talkPulse * 19f) * unit
                         mouth.addOval(
                             androidx.compose.ui.geometry.Rect(
                                 centerX - 23f * unit, mouthCenterY - openHeight / 2f,
@@ -217,11 +269,6 @@ private fun RobotScreen() {
                         mouth.quadraticTo(centerX + 5f * unit, mouthCenterY + 27f * unit,
                             centerX + 48f * unit, mouthCenterY - 13f * unit)
                     }
-                    "small" -> {
-                        mouth.moveTo(centerX - 25f * unit, mouthCenterY + 4f * unit)
-                        mouth.quadraticTo(centerX, mouthCenterY + 22f * unit,
-                            centerX + 25f * unit, mouthCenterY + 4f * unit)
-                    }
                     else -> {
                         mouth.moveTo(centerX - 48f * unit, mouthCenterY - 7f * unit)
                         mouth.quadraticTo(centerX, mouthCenterY + 38f * unit,
@@ -238,7 +285,7 @@ private fun RobotScreen() {
             }
 
             Text(
-                text = mood.subtitle,
+                text = activity.subtitle,
                 color = RobotWhite,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Medium,
