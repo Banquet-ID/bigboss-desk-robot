@@ -78,7 +78,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var speech: TextToSpeech? = null
     private var recognizer: SpeechRecognizer? = null
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var recognitionReady = false
+    private val conversationEngine: ConversationEngine =
+        if (RobotConfig.API_BASE_URL.isBlank()) LocalConversationEngine()
+        else RemoteConversationEngine(RobotConfig.API_BASE_URL)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -216,24 +218,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun handleVisitorSpeech(heard: String) {
-        val normalized = heard.lowercase(Locale("id", "ID"))
-        val reply = when {
-            normalized.contains("halo") || normalized.contains("hai") ||
-                normalized.contains("selamat pagi") || normalized.contains("selamat siang") ->
-                "Iya, halo juga. Ada perlu apa?"
-            normalized.contains("andhry") || normalized.contains("andri") ||
-                normalized.contains("pak andhry") ->
-                "Si kacung? Gue juga lagi nyari. Mau titip pesan?"
-            normalized.contains("siapa") && normalized.contains("lo") ->
-                "Gue Bigboss. Yang punya ruangan ini. Lo siapa?"
-            normalized.contains("bos") || normalized.contains("bigboss") ->
-                "Bosnya di sini. Kacungnya belum tentu ada."
-            normalized.contains("terima kasih") || normalized.contains("makasih") ->
-                "Iya, sama-sama. Jangan lupa mampir lagi."
-            else ->
-                "Lo bilang, $heard. Otak AI gue belum disambung. Sabar, ya."
+        subtitle = "Bentar, gue pikirin..."
+        faceMood = FaceMood.LISTENING
+        conversationEngine.reply(heard) { result ->
+            mainHandler.post {
+                val answer = result.getOrElse {
+                    "Waduh, otak gue lagi error. Coba ngomong lagi."
+                }
+                speakLine(answer)
+            }
         }
-        speakLine(reply)
     }
 
     override fun onRequestPermissionsResult(
