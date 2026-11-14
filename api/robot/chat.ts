@@ -20,11 +20,21 @@ function send(res: VercelResponse, status: number, payload: Record<string, unkno
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Vary", "Origin");
+  res.setHeader("X-Content-Type-Options", "nosniff");
 
   const allowedOrigin = process.env.ROBOT_ALLOWED_ORIGIN;
   const origin = req.headers.origin;
   if (allowedOrigin && origin && origin !== allowedOrigin) {
     return send(res, 403, { error: "Origin tidak diizinkan." });
+  }
+  if (allowedOrigin && origin === allowedOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  }
+  if (req.method === "OPTIONS") {
+    res.setHeader("Allow", "POST, OPTIONS");
+    return res.status(204).end();
   }
 
   if (req.method !== "POST") {
