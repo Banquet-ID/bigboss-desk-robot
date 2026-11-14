@@ -60,3 +60,10 @@ Indonesian voice data.
 ## Testing status
 Source changes are committed to GitHub. An Android build and Huawei tablet device test
 have not yet been run.
+
+
+## AI backend (new)
+A Vercel serverless chat endpoint is available at `api/robot/chat.ts`.
+See [backend setup](backend/README.md) for environment variables and deployment notes.
+The Android app remains on local fallback mode until an HTTPS backend URL is configured
+in `RobotConfig.API_BASE_URL` in `ConversationEngine.kt`.
