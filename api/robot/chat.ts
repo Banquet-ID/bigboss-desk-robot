@@ -74,8 +74,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
       body: JSON.stringify({
         model,
+        // Robot needs a direct spoken answer, not a long reasoning trace.
+        thinking: { type: "disabled" },
         temperature: 0.8,
-        max_tokens: 180,
+        max_tokens: 220,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: message }
@@ -85,7 +87,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     if (!upstream.ok) {
-      // Do not expose provider response bodies or credentials to the tablet.
       console.error("AI provider returned status", upstream.status);
       return send(res, 502, { error: "Otak AI sedang tidak merespons." });
     }
@@ -100,7 +101,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ? content.map(part => part.text || "").join(" ")
         : "").trim();
 
-    if (!reply) return send(res, 502, { error: "AI mengirim jawaban kosong." });
+    if (!reply) {
+      console.error("AI provider returned an empty message content");
+      return send(res, 502, { error: "AI mengirim jawaban kosong." });
+    }
     return send(res, 200, { reply: reply.slice(0, 1800) });
   } catch (error) {
     const timedOut = error instanceof Error && error.name === "AbortError";
