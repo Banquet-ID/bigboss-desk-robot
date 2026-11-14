@@ -1,0 +1,15 @@
+{
+  "name": "bigboss-desk-robot-backend",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "vercel dev",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@vercel/node": "^5.1.6",
+    "typescript": "^5.7.2",
+    "vercel": "^39.1.2"
+  }
+}
