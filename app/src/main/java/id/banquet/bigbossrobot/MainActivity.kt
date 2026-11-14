@@ -135,8 +135,9 @@ private fun RobotScreen() {
                 val eyeTop = 36f * unit
                 val gap = 82f * unit
                 val centerX = size.width / 2f
-                val leftX = centerX - gap / 2f - eyeWidth
-                val rightX = centerX + gap / 2f
+                val gazeOffset = glance.value * unit
+                val leftX = centerX - gap / 2f - eyeWidth + gazeOffset
+                val rightX = centerX + gap / 2f + gazeOffset
 
                 drawRoundRect(
                     color = RobotWhite,
