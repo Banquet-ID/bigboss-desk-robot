@@ -57,7 +57,7 @@ private const val AUDIO_PERMISSION_REQUEST = 701
 private val RobotBlack = Color(0xFF000000)
 private val RobotWhite = Color(0xFFFFFFFF)
 
-private enum class FaceMood(val eyeScale: Float, val mouth: String) {
+enum class FaceMood(val eyeScale: Float, val mouth: String) {
     IDLE(1.00f, "smile"),
     GREETING(1.12f, "smile"),
     LISTENING(1.04f, "small"),
