@@ -1,8 +1,14 @@
 package id.banquet.bigbossrobot
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import androidx.activity.ComponentActivity
@@ -39,18 +45,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import java.util.Locale
 import kotlin.math.min
 
+private const val AUDIO_PERMISSION_REQUEST = 701
 private val RobotBlack = Color(0xFF000000)
 private val RobotWhite = Color(0xFFFFFFFF)
 
 private enum class FaceMood(val eyeScale: Float, val mouth: String) {
     IDLE(1.00f, "smile"),
     GREETING(1.12f, "smile"),
+    LISTENING(1.04f, "small"),
     SPEAKING(0.94f, "open"),
     LAUGHING(0.78f, "laugh"),
     FLIRTY(1.08f, "smirk"),
@@ -62,13 +72,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         private set
     var subtitle by mutableStateOf("...")
         private set
-    var isSpeaking by mutableStateOf(false)
-        private set
     var mouthPulse by mutableFloatStateOf(0f)
         private set
 
     private var speech: TextToSpeech? = null
+    private var recognizer: SpeechRecognizer? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var recognitionReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,6 +86,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         window.statusBarColor = android.graphics.Color.BLACK
         window.navigationBarColor = android.graphics.Color.BLACK
         speech = TextToSpeech(this, this)
+        if (SpeechRecognizer.isRecognitionAvailable(this)) {
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+                setRecognitionListener(robotRecognitionListener)
+            }
+        } else {
+            subtitle = "Fitur pengenal suara tidak tersedia."
+        }
         setContent { RobotScreen(this) }
     }
 
@@ -94,24 +111,21 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         engine.setPitch(0.88f)
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
-                mainHandler.post {
-                    isSpeaking = true
-                    faceMood = FaceMood.SPEAKING
-                }
+                mainHandler.post { faceMood = FaceMood.SPEAKING }
             }
 
             override fun onDone(utteranceId: String?) {
                 mainHandler.post {
-                    isSpeaking = false
                     faceMood = FaceMood.IDLE
+                    beginListening()
                 }
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
                 mainHandler.post {
-                    isSpeaking = false
                     faceMood = FaceMood.IDLE
+                    beginListening()
                 }
             }
         })
@@ -123,6 +137,118 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         faceMood = FaceMood.GREETING
         val id = "robot-${System.currentTimeMillis()}"
         speech?.speak(line, TextToSpeech.QUEUE_FLUSH, null, id)
+    }
+
+    private fun beginListening() {
+        if (isFinishing || isDestroyed || recognizer == null) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.RECORD_AUDIO),
+                AUDIO_PERMISSION_REQUEST
+            )
+            subtitle = "Izinkan akses microphone untuk ngobrol."
+            return
+        }
+
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "id-ID")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "id-ID")
+            putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Bigboss Desk Robot sedang mendengarkan")
+        }
+        try {
+            recognizer?.startListening(intent)
+            subtitle = "Dengerin. Ngomong aja."
+            faceMood = FaceMood.LISTENING
+        } catch (_: Exception) {
+            subtitle = "Microphone belum siap."
+            faceMood = FaceMood.IDLE
+            mainHandler.postDelayed({ beginListening() }, 2500)
+        }
+    }
+
+    private val robotRecognitionListener = object : RecognitionListener {
+        override fun onReadyForSpeech(params: Bundle?) {
+            mainHandler.post {
+                faceMood = FaceMood.LISTENING
+                subtitle = "Dengerin. Ngomong aja."
+            }
+        }
+        override fun onBeginningOfSpeech() {
+            mainHandler.post { faceMood = FaceMood.LISTENING }
+        }
+        override fun onRmsChanged(rmsdB: Float) {
+            mainHandler.post { mouthPulse = (rmsdB / 12f).coerceIn(0f, 1f) }
+        }
+        override fun onBufferReceived(buffer: ByteArray?) {}
+        override fun onEndOfSpeech() {
+            mainHandler.post { subtitle = "Bentar, gue pikirin..." }
+        }
+        override fun onError(error: Int) {
+            mainHandler.post {
+                faceMood = FaceMood.IDLE
+                mouthPulse = 0f
+                if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                    subtitle = "Akses microphone belum diizinkan."
+                } else {
+                    subtitle = "Gue masih dengerin."
+                    mainHandler.postDelayed({ beginListening() }, 1100)
+                }
+            }
+        }
+        override fun onResults(results: Bundle?) {
+            val words = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            val heard = words?.firstOrNull()?.trim().orEmpty()
+            mainHandler.post {
+                mouthPulse = 0f
+                if (heard.isNotBlank()) handleVisitorSpeech(heard)
+                else beginListening()
+            }
+        }
+        override fun onPartialResults(partialResults: Bundle?) {}
+        override fun onEvent(eventType: Int, params: Bundle?) {}
+    }
+
+    private fun handleVisitorSpeech(heard: String) {
+        val normalized = heard.lowercase(Locale("id", "ID"))
+        val reply = when {
+            normalized.contains("halo") || normalized.contains("hai") ||
+                normalized.contains("selamat pagi") || normalized.contains("selamat siang") ->
+                "Iya, halo juga. Ada perlu apa?"
+            normalized.contains("andhry") || normalized.contains("andri") ||
+                normalized.contains("pak andhry") ->
+                "Si kacung? Gue juga lagi nyari. Mau titip pesan?"
+            normalized.contains("siapa") && normalized.contains("lo") ->
+                "Gue Bigboss. Yang punya ruangan ini. Lo siapa?"
+            normalized.contains("bos") || normalized.contains("bigboss") ->
+                "Bosnya di sini. Kacungnya belum tentu ada."
+            normalized.contains("terima kasih") || normalized.contains("makasih") ->
+                "Iya, sama-sama. Jangan lupa mampir lagi."
+            else ->
+                "Lo bilang, $heard. Otak AI gue belum disambung. Sabar, ya."
+        }
+        speakLine(reply)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == AUDIO_PERMISSION_REQUEST) {
+            if (grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                beginListening()
+            } else {
+                subtitle = "Mic ditolak. Gue jadi pajangan dulu."
+                faceMood = FaceMood.IDLE
+            }
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -137,9 +263,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     override fun onDestroy() {
+        recognizer?.cancel()
+        recognizer?.destroy()
+        recognizer = null
         speech?.stop()
         speech?.shutdown()
         speech = null
+        mainHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 }
@@ -247,7 +377,7 @@ private fun RobotScreen(activity: MainActivity) {
                 val mouth = Path()
                 when (mood.mouth) {
                     "open" -> {
-                        val openHeight = (10f + talkPulse * 19f) * unit
+                        val openHeight = (10f + talkPulse * 19f + activity.mouthPulse * 12f) * unit
                         mouth.addOval(
                             androidx.compose.ui.geometry.Rect(
                                 centerX - 23f * unit, mouthCenterY - openHeight / 2f,
