@@ -18,7 +18,7 @@ interface ConversationEngine {
 object RobotConfig {
     // Set this to the HTTPS backend base URL when the backend is deployed.
     // Keep provider API keys on the backend, never in this Android app.
-    const val API_BASE_URL = ""
+    const val API_BASE_URL = "https://bigboss-desk-robot.vercel.app"
     const val REQUEST_TIMEOUT_MS = 15_000
 }
 
@@ -75,7 +75,7 @@ class RemoteConversationEngine(
                 try {
                     val payload = JSONObject()
                         .put("message", message)
-                        .put("device", "bigboss-desk-robot")
+                        .put("device", "huawei-pad")
                         .toString()
                     connection.outputStream.use {
                         it.write(payload.toByteArray(StandardCharsets.UTF_8))
